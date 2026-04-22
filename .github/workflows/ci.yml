@@ -1,0 +1,115 @@
+name: CI/CD — FreelanceEscrow
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ─── Rust Contracts ──────────────────────────────────────────────────────────
+  contracts:
+    name: Build & Test Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build all contracts (WASM)
+        run: |
+          cargo build --target wasm32-unknown-unknown --release -p escrow
+          cargo build --target wasm32-unknown-unknown --release -p dispute_resolution
+          cargo build --target wasm32-unknown-unknown --release -p escrow_factory
+
+      - name: Run contract tests
+        run: cargo test --workspace --features testutils
+
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-contracts
+          path: target/wasm32-unknown-unknown/release/*.wasm
+
+  # ─── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: node_modules/.bin/tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_FACTORY_CONTRACT_ID: ${{ secrets.VITE_FACTORY_CONTRACT_ID }}
+          VITE_DISPUTE_CONTRACT_ID: ${{ secrets.VITE_DISPUTE_CONTRACT_ID }}
+          VITE_TOKEN_ADDRESS: ${{ secrets.VITE_TOKEN_ADDRESS }}
+          VITE_NETWORK: testnet
+          VITE_RPC_URL: https://soroban-testnet.stellar.org
+          VITE_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  # ─── Deploy to Netlify ───────────────────────────────────────────────────────
+  deploy:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: [contracts, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Deploy to Netlify
+        uses: nwtgck/actions-netlify@v3.0
+        with:
+          publish-dir: './frontend/dist'
+          production-branch: main
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: "Deploy from GitHub Actions — ${{ github.sha }}"
+          enable-pull-request-comment: true
+          enable-commit-comment: true
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
