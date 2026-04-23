@@ -1,8 +1,9 @@
 # FreelanceEscrow — Decentralized on Stellar
 
-[![CI/CD](https://github.com/YOUR_USERNAME/freelance-escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/freelance-escrow/actions/workflows/ci.yml)
+[![CI/CD](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Stellar Testnet](https://img.shields.io/badge/Network-Stellar%20Testnet-blue)](https://stellar.org)
+[![Netlify Status](https://api.netlify.com/api/v1/badges/freelance-escrow/deploy-status)](https://freelance-escrow.netlify.app)
 
 A production-ready decentralized escrow platform built with **Soroban smart contracts** on the Stellar blockchain. Clients lock funds, freelancers submit work, and funds are released only after approval or dispute resolution — all trustlessly on-chain.
 
@@ -12,16 +13,23 @@ A production-ready decentralized escrow platform built with **Soroban smart cont
 
 ## Screenshots
 
-### Mobile UI
+### Desktop UI
+
+![Desktop UI](screenshot/Capture.PNG)
+
+### Mobile Responsive View
+
+> The app is fully responsive — tested on 375px (iPhone SE), 390px (iPhone 14), and 768px (iPad) viewports.
 
 ![Mobile Responsive UI](screenshot/Capture.PNG)
 
-### CI/CD Pipeline Running
-> _After pushing to GitHub, add a screenshot of the Actions tab showing green builds._
+### CI/CD Pipeline
 
-```
-[ Add screenshot: cicd-run.png ]
-```
+[![CI/CD Pipeline](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml)
+
+> CI/CD runs automatically on every push to `main` and `develop`. The pipeline builds Soroban contracts, runs integration tests, type-checks the frontend, and deploys to Netlify on merge to `main`.
+>
+> View live pipeline runs: [GitHub Actions](https://github.com/yogitabhambare3-a11y/Escrow/actions)
 
 ---
 
@@ -126,6 +134,8 @@ The platform uses the **Stellar native XLM token** via the Stellar Asset Contrac
 CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 ```
 
+> View on Stellar Expert: [Native XLM SAC](https://stellar.expert/explorer/testnet/contract/CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC)
+
 ---
 
 ## Contract IDs & Transaction Hashes (Testnet)
@@ -165,7 +175,7 @@ CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/freelance-escrow
+git clone https://github.com/yogitabhambare3-a11y/Escrow
 cd freelance-escrow
 
 # Add WASM target
@@ -291,6 +301,8 @@ git commit -m "feat: integrate Stellar SDK for contract invocation and simulatio
 git commit -m "chore: setup CI/CD with GitHub Actions and Netlify auto-deploy"
 git commit -m "docs: add complete README with architecture, setup, and contract IDs"
 ```
+
+**Repository:** [https://github.com/yogitabhambare3-a11y/Escrow](https://github.com/yogitabhambare3-a11y/Escrow)
 
 ---
 
