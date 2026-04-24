@@ -1,7 +1,34 @@
 import { useState, useCallback, useEffect } from 'react';
-import { requestAccess, getAddress, isAllowed } from '@stellar/freighter-api';
 import toast from 'react-hot-toast';
 import type { WalletState } from '../types';
+
+// Safely access the freighter API injected by the extension into window
+function getFreighter(): Record<string, (...args: unknown[]) => Promise<unknown>> | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const w = window as any;
+  return w.freighter ?? w.freighterApi ?? null;
+}
+
+async function freighterRequest<T>(method: string, ...args: unknown[]): Promise<T> {
+  // Try the npm package first
+  try {
+    const api = await import('@stellar/freighter-api');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fn = (api as any)[method];
+    if (typeof fn === 'function') {
+      const res = await fn(...args);
+      return res as T;
+    }
+  } catch {
+    // fall through to window injection
+  }
+  // Fallback: window.freighter direct injection
+  const f = getFreighter();
+  if (!f || typeof f[method] !== 'function') {
+    throw new Error('Freighter not found');
+  }
+  return f[method](...args) as Promise<T>;
+}
 
 export function useWallet() {
   const [wallet, setWallet] = useState<WalletState>({
@@ -11,24 +38,19 @@ export function useWallet() {
     network: null,
   });
 
-  // Auto-reconnect if already allowed
+  // Auto-reconnect on mount
   useEffect(() => {
     (async () => {
       try {
-        const allowedRes = await isAllowed();
-        if (allowedRes.isAllowed) {
-          const addressRes = await getAddress();
-          if (addressRes.address && !addressRes.error) {
-            setWallet({
-              address: addressRes.address,
-              isConnected: true,
-              isConnecting: false,
-              network: 'testnet',
-            });
+        const allowed = await freighterRequest<{ isAllowed: boolean }>('isAllowed');
+        if (allowed?.isAllowed) {
+          const addr = await freighterRequest<{ address: string }>('getAddress');
+          if (addr?.address) {
+            setWallet({ address: addr.address, isConnected: true, isConnecting: false, network: 'testnet' });
           }
         }
       } catch {
-        // Freighter not ready yet
+        // not installed or not ready
       }
     })();
   }, []);
@@ -36,24 +58,19 @@ export function useWallet() {
   const connect = useCallback(async () => {
     setWallet((w) => ({ ...w, isConnecting: true }));
     try {
-      // requestAccess() handles everything — prompts if not allowed, returns address if already allowed
-      const accessRes = await requestAccess();
-      if (accessRes.error) {
-        toast.error(`Connection failed: ${accessRes.error}`);
-        setWallet((w) => ({ ...w, isConnecting: false }));
-        return;
-      }
-      setWallet({
-        address: accessRes.address,
-        isConnected: true,
-        isConnecting: false,
-        network: 'testnet',
-      });
+      const res = await freighterRequest<{ address?: string; error?: string }>('requestAccess');
+      if (res?.error) throw new Error(res.error);
+      if (!res?.address) throw new Error('No address returned from Freighter');
+      setWallet({ address: res.address, isConnected: true, isConnecting: false, network: 'testnet' });
       toast.success('Wallet connected!');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Connection error: ${msg}`);
       setWallet((w) => ({ ...w, isConnecting: false }));
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('not found') || msg.includes('undefined')) {
+        toast.error('Freighter not detected. Please install it from freighter.app', { duration: 6000 });
+      } else {
+        toast.error(`Connection failed: ${msg}`);
+      }
     }
   }, []);
 

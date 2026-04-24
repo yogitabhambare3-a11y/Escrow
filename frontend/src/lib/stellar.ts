@@ -7,7 +7,7 @@ import {
   scValToNative,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
-import { requestAccess, signTransaction } from '@stellar/freighter-api';
+import { signTransaction as freighterSign } from '@stellar/freighter-api';
 import {
   RPC_URL,
   NETWORK_PASSPHRASE,
@@ -40,15 +40,8 @@ async function invokeContract(
 
   const preparedTx = await server.prepareTransaction(tx);
 
-  const signedRes = await signTransaction(preparedTx.toXDR(), {
-    networkPassphrase: NETWORK_PASSPHRASE,
-  });
-
-  if (signedRes.error) {
-    throw new Error(signedRes.error);
-  }
-
-  const signedTx = TransactionBuilder.fromXDR(signedRes.signedTxXdr, NETWORK_PASSPHRASE);
+  const signedXdr = await signTx(preparedTx.toXDR());
+  const signedTx = TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE);
 
   const result = await server.sendTransaction(signedTx);
 
@@ -100,12 +93,14 @@ async function simulateContract(
   return scValToNative(successSim.result.retval);
 }
 
-// ─── Wallet ───────────────────────────────────────────────────────────────────
-
-export async function connectWallet(): Promise<string> {
-  const accessRes = await requestAccess();
-  if (accessRes.error) throw new Error(accessRes.error);
-  return accessRes.address;
+// ─── Sign helper (handles Freighter v1 string and v2 object response) ─────────
+async function signTx(xdrStr: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res: any = await freighterSign(xdrStr, { networkPassphrase: NETWORK_PASSPHRASE });
+  if (typeof res === 'string') return res;
+  if (res?.signedTxXdr) return res.signedTxXdr;
+  if (res?.error) throw new Error(res.error);
+  throw new Error('Unexpected signTransaction response');
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
