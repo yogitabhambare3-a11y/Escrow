@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { isConnected, getPublicKey, isAllowed } from '@stellar/freighter-api';
+import { isConnected, isAllowed, requestAccess, getAddress } from '@stellar/freighter-api';
 import type { WalletState } from '../types';
 
 export function useWallet() {
@@ -14,20 +14,18 @@ export function useWallet() {
   useEffect(() => {
     (async () => {
       try {
-        const connected = await isConnected();
-        const allowed = await isAllowed();
-        // Handle both boolean and object return types across SDK versions
-        const isConn = typeof connected === 'boolean' ? connected : (connected as { isConnected: boolean }).isConnected;
-        const isAllow = typeof allowed === 'boolean' ? allowed : (allowed as { isAllowed: boolean }).isAllowed;
-        if (isConn && isAllow) {
-          const pubKey = await getPublicKey();
-          const address = typeof pubKey === 'string' ? pubKey : (pubKey as { address: string }).address;
-          setWallet({
-            address,
-            isConnected: true,
-            isConnecting: false,
-            network: 'testnet',
-          });
+        const connectedRes = await isConnected();
+        const allowedRes = await isAllowed();
+        if (connectedRes.isConnected && allowedRes.isAllowed) {
+          const addressRes = await getAddress();
+          if (addressRes.address && !addressRes.error) {
+            setWallet({
+              address: addressRes.address,
+              isConnected: true,
+              isConnecting: false,
+              network: 'testnet',
+            });
+          }
         }
       } catch {
         // Freighter not installed or not connected
@@ -38,10 +36,12 @@ export function useWallet() {
   const connect = useCallback(async () => {
     setWallet((w) => ({ ...w, isConnecting: true }));
     try {
-      const pubKey = await getPublicKey();
-      const address = typeof pubKey === 'string' ? pubKey : (pubKey as { address: string }).address;
+      const accessRes = await requestAccess();
+      if (accessRes.error) {
+        throw new Error(accessRes.error);
+      }
       setWallet({
-        address,
+        address: accessRes.address,
         isConnected: true,
         isConnecting: false,
         network: 'testnet',

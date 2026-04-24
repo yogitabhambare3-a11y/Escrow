@@ -7,7 +7,7 @@ import {
   scValToNative,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
-import { getPublicKey, signTransaction } from '@stellar/freighter-api';
+import { requestAccess, signTransaction } from '@stellar/freighter-api';
 import {
   RPC_URL,
   NETWORK_PASSPHRASE,
@@ -40,14 +40,15 @@ async function invokeContract(
 
   const preparedTx = await server.prepareTransaction(tx);
 
-  const signedXdr = await signTransaction(preparedTx.toXDR(), {
+  const signedRes = await signTransaction(preparedTx.toXDR(), {
     networkPassphrase: NETWORK_PASSPHRASE,
   });
 
-  const signedTx = TransactionBuilder.fromXDR(
-    typeof signedXdr === 'string' ? signedXdr : (signedXdr as { signedTxXdr: string }).signedTxXdr,
-    NETWORK_PASSPHRASE
-  );
+  if (signedRes.error) {
+    throw new Error(signedRes.error);
+  }
+
+  const signedTx = TransactionBuilder.fromXDR(signedRes.signedTxXdr, NETWORK_PASSPHRASE);
 
   const result = await server.sendTransaction(signedTx);
 
@@ -102,8 +103,9 @@ async function simulateContract(
 // ─── Wallet ───────────────────────────────────────────────────────────────────
 
 export async function connectWallet(): Promise<string> {
-  const pubKey = await getPublicKey();
-  return typeof pubKey === 'string' ? pubKey : (pubKey as { address: string }).address;
+  const accessRes = await requestAccess();
+  if (accessRes.error) throw new Error(accessRes.error);
+  return accessRes.address;
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
