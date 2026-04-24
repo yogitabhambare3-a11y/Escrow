@@ -2,32 +2,47 @@ import { useState, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import type { WalletState } from '../types';
 
-// Safely access the freighter API injected by the extension into window
-function getFreighter(): Record<string, (...args: unknown[]) => Promise<unknown>> | null {
+async function getFreighterAddress(): Promise<string> {
+  const api = await import('@stellar/freighter-api');
+
+  // Try requestAccess first (prompts user if needed)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any = await (api as any).requestAccess();
+    if (res?.address) return res.address;
+  } catch { /* try next */ }
+
+  // Try getAddress (silent, works if already allowed)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any = await (api as any).getAddress();
+    if (res?.address) return res.address;
+  } catch { /* try next */ }
+
+  // Try legacy getPublicKey
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any = await (api as any).getPublicKey?.();
+    if (typeof res === 'string' && res.length > 0) return res;
+    if (res?.address) return res.address;
+  } catch { /* try next */ }
+
+  // Try window.freighter direct
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const w = window as any;
-  return w.freighter ?? w.freighterApi ?? null;
-}
+  const freighter = w.freighter ?? w.freighterApi;
+  if (freighter) {
+    try {
+      const res = await freighter.getPublicKey?.();
+      if (typeof res === 'string' && res.length > 0) return res;
+    } catch { /* fail */ }
+    try {
+      const res = await freighter.requestAccess?.();
+      if (res?.address) return res.address;
+    } catch { /* fail */ }
+  }
 
-async function freighterRequest<T>(method: string, ...args: unknown[]): Promise<T> {
-  // Try the npm package first
-  try {
-    const api = await import('@stellar/freighter-api');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fn = (api as any)[method];
-    if (typeof fn === 'function') {
-      const res = await fn(...args);
-      return res as T;
-    }
-  } catch {
-    // fall through to window injection
-  }
-  // Fallback: window.freighter direct injection
-  const f = getFreighter();
-  if (!f || typeof f[method] !== 'function') {
-    throw new Error('Freighter not found');
-  }
-  return f[method](...args) as Promise<T>;
+  throw new Error('Could not get address from Freighter. Make sure your wallet is unlocked and has an account.');
 }
 
 export function useWallet() {
@@ -42,35 +57,29 @@ export function useWallet() {
   useEffect(() => {
     (async () => {
       try {
-        const allowed = await freighterRequest<{ isAllowed: boolean }>('isAllowed');
+        const api = await import('@stellar/freighter-api');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const allowed: any = await (api as any).isAllowed();
         if (allowed?.isAllowed) {
-          const addr = await freighterRequest<{ address: string }>('getAddress');
-          if (addr?.address) {
-            setWallet({ address: addr.address, isConnected: true, isConnecting: false, network: 'testnet' });
+          const address = await getFreighterAddress();
+          if (address) {
+            setWallet({ address, isConnected: true, isConnecting: false, network: 'testnet' });
           }
         }
-      } catch {
-        // not installed or not ready
-      }
+      } catch { /* not installed or locked */ }
     })();
   }, []);
 
   const connect = useCallback(async () => {
     setWallet((w) => ({ ...w, isConnecting: true }));
     try {
-      const res = await freighterRequest<{ address?: string; error?: string }>('requestAccess');
-      if (res?.error) throw new Error(res.error);
-      if (!res?.address) throw new Error('No address returned from Freighter');
-      setWallet({ address: res.address, isConnected: true, isConnecting: false, network: 'testnet' });
+      const address = await getFreighterAddress();
+      setWallet({ address, isConnected: true, isConnecting: false, network: 'testnet' });
       toast.success('Wallet connected!');
     } catch (err: unknown) {
       setWallet((w) => ({ ...w, isConnecting: false }));
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('not found') || msg.includes('undefined')) {
-        toast.error('Freighter not detected. Please install it from freighter.app', { duration: 6000 });
-      } else {
-        toast.error(`Connection failed: ${msg}`);
-      }
+      toast.error(msg, { duration: 7000 });
     }
   }, []);
 
