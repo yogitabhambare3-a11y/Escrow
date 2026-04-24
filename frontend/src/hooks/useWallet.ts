@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { isConnected, isAllowed, requestAccess, getAddress } from '@stellar/freighter-api';
+import { requestAccess, getAddress, isAllowed } from '@stellar/freighter-api';
 import toast from 'react-hot-toast';
 import type { WalletState } from '../types';
 
@@ -15,9 +15,8 @@ export function useWallet() {
   useEffect(() => {
     (async () => {
       try {
-        const connectedRes = await isConnected();
         const allowedRes = await isAllowed();
-        if (connectedRes.isConnected && allowedRes.isAllowed) {
+        if (allowedRes.isAllowed) {
           const addressRes = await getAddress();
           if (addressRes.address && !addressRes.error) {
             setWallet({
@@ -29,24 +28,15 @@ export function useWallet() {
           }
         }
       } catch {
-        // Freighter not installed
+        // Freighter not ready yet
       }
     })();
   }, []);
 
   const connect = useCallback(async () => {
-    // Check if Freighter is installed
-    const connectedRes = await isConnected();
-    if (!connectedRes.isConnected) {
-      toast.error('Freighter wallet not found. Please install it from freighter.app', {
-        duration: 6000,
-      });
-      window.open('https://www.freighter.app', '_blank');
-      return;
-    }
-
     setWallet((w) => ({ ...w, isConnecting: true }));
     try {
+      // requestAccess() handles everything — prompts if not allowed, returns address if already allowed
       const accessRes = await requestAccess();
       if (accessRes.error) {
         toast.error(`Connection failed: ${accessRes.error}`);
@@ -61,7 +51,7 @@ export function useWallet() {
       });
       toast.success('Wallet connected!');
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+      const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Connection error: ${msg}`);
       setWallet((w) => ({ ...w, isConnecting: false }));
     }
