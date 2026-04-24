@@ -21,7 +21,7 @@ A production-ready decentralized escrow platform built with **Soroban smart cont
 
 > The app is fully responsive — tested on 375px (iPhone SE), 390px (iPhone 14), and 768px (iPad) viewports.
 
-![Mobile Responsive UI](screenshot/Capture.PNG)
+![Mobile Responsive UI](screenshot/mobile.PNG)
 
 ### CI/CD Pipeline
 
