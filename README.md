@@ -19,6 +19,10 @@ A production-ready decentralized escrow platform built with **Soroban smart cont
 
 ![Mobile Responsive UI](screenshot/mobile.PNG)
 
+![Mobile View 1](screenshot/mob1.PNG)
+
+![Mobile View 2](screenshot/mob2.PNG)
+
 ### CI/CD Pipeline
 
 [![CI/CD Pipeline](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml)
