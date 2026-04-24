@@ -27,6 +27,8 @@ A production-ready decentralized escrow platform built with **Soroban smart cont
 
 [![CI/CD Pipeline](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml)
 
+![CI/CD Pipeline Run](screenshot/cdpipeline.PNG)
+
 > CI/CD runs automatically on every push to `main` and `develop`. The pipeline builds Soroban contracts, runs integration tests, type-checks the frontend, and deploys to Netlify on merge to `main`.
 >
 > View live pipeline runs: [GitHub Actions](https://github.com/yogitabhambare3-a11y/Escrow/actions)
