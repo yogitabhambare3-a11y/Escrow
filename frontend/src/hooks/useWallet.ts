@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { isConnected, isAllowed, requestAccess, getAddress } from '@stellar/freighter-api';
+import toast from 'react-hot-toast';
 import type { WalletState } from '../types';
 
 export function useWallet() {
@@ -28,17 +29,29 @@ export function useWallet() {
           }
         }
       } catch {
-        // Freighter not installed or not connected
+        // Freighter not installed
       }
     })();
   }, []);
 
   const connect = useCallback(async () => {
+    // Check if Freighter is installed
+    const connectedRes = await isConnected();
+    if (!connectedRes.isConnected) {
+      toast.error('Freighter wallet not found. Please install it from freighter.app', {
+        duration: 6000,
+      });
+      window.open('https://www.freighter.app', '_blank');
+      return;
+    }
+
     setWallet((w) => ({ ...w, isConnecting: true }));
     try {
       const accessRes = await requestAccess();
       if (accessRes.error) {
-        throw new Error(accessRes.error);
+        toast.error(`Connection failed: ${accessRes.error}`);
+        setWallet((w) => ({ ...w, isConnecting: false }));
+        return;
       }
       setWallet({
         address: accessRes.address,
@@ -46,14 +59,17 @@ export function useWallet() {
         isConnecting: false,
         network: 'testnet',
       });
-    } catch (err) {
+      toast.success('Wallet connected!');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Connection error: ${msg}`);
       setWallet((w) => ({ ...w, isConnecting: false }));
-      throw err;
     }
   }, []);
 
   const disconnect = useCallback(() => {
     setWallet({ address: null, isConnected: false, isConnecting: false, network: null });
+    toast.success('Wallet disconnected');
   }, []);
 
   return { wallet, connect, disconnect };
