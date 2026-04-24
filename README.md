@@ -9,9 +9,15 @@ A production-ready decentralized escrow platform built with **Soroban smart cont
 
 **Live Demo:** [https://freelance-escrow.netlify.app](https://freelance-escrow.netlify.app)
 
+**Demo Video:** [Watch 1-minute walkthrough](https://www.loom.com/share/YOUR_VIDEO_ID) — shows full flow: connect wallet → create escrow → deposit → submit work → approve & release funds
+
 ---
 
-## Screenshots
+## ScreenshotsRevisions Needed
+Required in readme:
+ -Demo video link (1-minute) showing full functionality
+﻿
+have atleast 8 meaningful commit 
 
 ### Mobile Responsive View
 
