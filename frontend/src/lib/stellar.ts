@@ -39,8 +39,16 @@ async function invokeContract(
     .setTimeout(30)
     .build();
 
-  const preparedTx = await server.prepareTransaction(tx);
-  const signedXdr = await signTx(preparedTx.toXDR());
+  // Simulate first to get the sorobanData / footprint
+  const sim = await server.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) {
+    throw new Error(`Simulation error: ${(sim as SorobanRpc.Api.SimulateTransactionErrorResponse).error}`);
+  }
+
+  // Assemble manually instead of prepareTransaction to avoid XDR parse issues
+  const assembled = SorobanRpc.assembleTransaction(tx, sim).build();
+
+  const signedXdr = await signTx(assembled.toXDR());
   const signedTx = TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE);
   const result = await server.sendTransaction(signedTx);
 
@@ -50,7 +58,7 @@ async function invokeContract(
 
   let getResult = await server.getTransaction(result.hash);
   let attempts = 0;
-  while (getResult.status === 'NOT_FOUND' && attempts < 20) {
+  while (getResult.status === 'NOT_FOUND' && attempts < 30) {
     await new Promise((r) => setTimeout(r, 1500));
     getResult = await server.getTransaction(result.hash);
     attempts++;
