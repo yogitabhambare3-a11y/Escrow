@@ -3,11 +3,11 @@
 [![CI/CD](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml/badge.svg)](https://github.com/yogitabhambare3-a11y/Escrow/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Stellar Testnet](https://img.shields.io/badge/Network-Stellar%20Testnet-blue)](https://stellar.org)
-[![Netlify Status](https://api.netlify.com/api/v1/badges/freelance-escrow/deploy-status)](https://freelance-escrow.netlify.app)
+[![Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?logo=vercel)](https://frontend-theta-lime-47.vercel.app)
 
 A production-ready decentralized escrow platform built with **Soroban smart contracts** on the Stellar blockchain. Clients lock funds, freelancers submit work, and funds are released only after approval or dispute resolution — all trustlessly on-chain.
 
-**Live Demo:** [https://freelance-escrow.netlify.app](https://freelance-escrow.netlify.app)
+**Live Demo:** [https://frontend-theta-lime-47.vercel.app](https://frontend-theta-lime-47.vercel.app)
 
 **Demo Video:** [Watch 1-minute walkthrough](https://www.loom.com/share/YOUR_VIDEO_ID) — shows full flow: connect wallet → create escrow → deposit → submit work → approve & release funds
 
