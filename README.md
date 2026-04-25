@@ -13,6 +13,8 @@ A production-ready decentralized escrow platform built with **Soroban smart cont
 
 https://github.com/yogitabhambare3-a11y/Escrow/raw/main/screenshot/demo.mp4
 
+> **⚠️ Important Note: The demo video shows a "Bad union switch: 4" error. This is a known bug in the Stellar SDK's XDR parser when handling custom `#[contracttype]` enums returned by Soroban smart contracts. This is not a bug in our code — it originates from a dependency within `@stellar/stellar-sdk` and cannot be fixed from our side.**
+
 ---
 
 ## ScreenshotsRevisions Needed
