@@ -40,17 +40,14 @@ async function invokeContract(
     .build();
 
   const preparedTx = await server.prepareTransaction(tx);
-
   const signedXdr = await signTx(preparedTx.toXDR());
   const signedTx = TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE);
-
   const result = await server.sendTransaction(signedTx);
 
   if (result.status === 'ERROR') {
     throw new Error(`Transaction failed: ${JSON.stringify(result.errorResult)}`);
   }
 
-  // Poll for result
   let getResult = await server.getTransaction(result.hash);
   let attempts = 0;
   while (getResult.status === 'NOT_FOUND' && attempts < 20) {
@@ -94,39 +91,68 @@ async function simulateContract(
   return successSim.result.retval;
 }
 
-// Parse a Soroban Address scVal to string
+// ─── XDR Parsers ──────────────────────────────────────────────────────────────
+
 function parseAddress(val: xdr.ScVal): string {
-  try {
-    return Address.fromScVal(val).toString();
-  } catch {
-    try { return scValToNative(val) as string; } catch { return ''; }
-  }
+  try { return Address.fromScVal(val).toString(); } catch { /* fall */ }
+  try { return scValToNative(val) as string; } catch { return ''; }
 }
 
-// Parse custom EscrowState enum — contracttype enums are scvVec with symbol
-function parseEscrowState(val: xdr.ScVal): string {
+function parseI128(val: xdr.ScVal): bigint {
   try {
-    // Custom contracttype enum is encoded as ScvVec([ScvSymbol("VariantName")])
-    // or as ScvMap, or directly as ScvSymbol
-    if (val.switch().name === 'scvVec') {
+    if (val.switch().name === 'scvI128') {
+      const parts = val.i128();
+      const hi = BigInt(parts.hi().toString());
+      const lo = BigInt(parts.lo().toString());
+      return (hi << 64n) | lo;
+    }
+    if (val.switch().name === 'scvU128') {
+      const parts = val.u128();
+      const hi = BigInt(parts.hi().toString());
+      const lo = BigInt(parts.lo().toString());
+      return (hi << 64n) | lo;
+    }
+    return BigInt(String(scValToNative(val)));
+  } catch { return 0n; }
+}
+
+// Soroban #[contracttype] enums are encoded as scvVec([scvSymbol("VariantName")])
+function parseEscrowState(val: xdr.ScVal): EscrowState {
+  const STATES: EscrowState[] = ['Created', 'Funded', 'Submitted', 'Approved', 'Released', 'Disputed'];
+  try {
+    const sw = val.switch().name;
+    console.log('parseEscrowState switch:', sw, val.toXDR('base64'));
+
+    if (sw === 'scvVec') {
       const vec = val.vec();
       if (vec && vec.length > 0) {
         const first = vec[0];
-        if (first.switch().name === 'scvSymbol') return first.sym().toString();
-        if (first.switch().name === 'scvString') return first.str().toString();
+        const fsw = first.switch().name;
+        if (fsw === 'scvSymbol') return first.sym().toString() as EscrowState;
+        if (fsw === 'scvString') return first.str().toString() as EscrowState;
+        if (fsw === 'scvU32') {
+          const idx = first.u32();
+          return STATES[idx] ?? 'Created';
+        }
       }
     }
-    if (val.switch().name === 'scvSymbol') return val.sym().toString();
-    if (val.switch().name === 'scvString') return val.str().toString();
-    // Enum variant index fallback
-    if (val.switch().name === 'scvLedgerKeyContractInstance') return 'Created';
-    try { return String(scValToNative(val)); } catch { return 'Created'; }
-  } catch {
-    return 'Created';
-  }
+    if (sw === 'scvSymbol') return val.sym().toString() as EscrowState;
+    if (sw === 'scvString') return val.str().toString() as EscrowState;
+    if (sw === 'scvU32') return STATES[val.u32()] ?? 'Created';
+    // scvMap — contracttype enum with named variant
+    if (sw === 'scvMap') {
+      const map = val.map();
+      if (map && map.length > 0) {
+        const key = map[0].key();
+        if (key.switch().name === 'scvSymbol') return key.sym().toString() as EscrowState;
+      }
+    }
+  } catch (e) { console.warn('parseEscrowState error', e); }
+  return 'Created';
 }
 
-// ─── Sign helper (handles Freighter v1 string and v2 object response) ─────────
+// ─── Sign helper ──────────────────────────────────────────────────────────────
+
 async function signTx(xdrStr: string): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res: any = await freighterSign(xdrStr, { networkPassphrase: NETWORK_PASSPHRASE });
@@ -144,7 +170,6 @@ export async function createEscrow(
   amountXlm: number
 ): Promise<string> {
   const amountStroops = BigInt(Math.round(amountXlm * 10_000_000));
-
   const args = [
     nativeToScVal(signerAddress, { type: 'address' }),
     nativeToScVal(freelancer, { type: 'address' }),
@@ -152,32 +177,18 @@ export async function createEscrow(
     nativeToScVal(TOKEN_ADDRESS, { type: 'address' }),
     nativeToScVal(DISPUTE_CONTRACT_ID, { type: 'address' }),
   ];
-
-  const result = await invokeContract(
-    FACTORY_CONTRACT_ID,
-    'create_escrow',
-    args,
-    signerAddress
-  );
-
-  return scValToNative(result) as string;
+  const result = await invokeContract(FACTORY_CONTRACT_ID, 'create_escrow', args, signerAddress);
+  return parseAddress(result);
 }
 
 export async function getEscrows(signerAddress: string): Promise<string[]> {
   try {
     const retval = await simulateContract(FACTORY_CONTRACT_ID, 'get_escrows', [], signerAddress);
     if (!retval) return [];
-    console.log('getEscrows raw retval switch:', retval.switch().name, retval.toXDR('base64'));
-    // Returns a Vec<Address> — scvVec of scvAddress
+    console.log('getEscrows switch:', retval.switch().name);
     if (retval.switch().name === 'scvVec') {
-      const vec = retval.vec() ?? [];
-      return vec.map((v) => parseAddress(v)).filter(Boolean);
+      return (retval.vec() ?? []).map((v) => parseAddress(v)).filter(Boolean);
     }
-    // Try native conversion as fallback
-    try {
-      const native = scValToNative(retval);
-      if (Array.isArray(native)) return native as string[];
-    } catch { /* ignore */ }
     return [];
   } catch (e) {
     console.error('getEscrows error:', e);
@@ -191,7 +202,6 @@ export async function getEscrowDetails(
   contractId: string,
   signerAddress: string
 ): Promise<EscrowDetails> {
-  // get_details returns (Address, Address, i128, EscrowState)
   const retval = await simulateContract(contractId, 'get_details', [], signerAddress);
 
   let client = '', freelancer = '', amount = 0n, state: EscrowState = 'Created';
@@ -199,50 +209,20 @@ export async function getEscrowDetails(
   if (retval && retval.switch().name === 'scvVec') {
     const vec = retval.vec() ?? [];
     console.log('get_details fields:', vec.map(v => v.switch().name));
-
-    // [0] client address
     if (vec[0]) client = parseAddress(vec[0]);
-
-    // [1] freelancer address
     if (vec[1]) freelancer = parseAddress(vec[1]);
-
-    // [2] i128 amount — parse directly without scValToNative
-    if (vec[2]) {
-      try {
-        const sw = vec[2].switch().name;
-        if (sw === 'scvI128') {
-          const parts = vec[2].i128();
-          const hi = BigInt(parts.hi().toString());
-          const lo = BigInt(parts.lo().toString());
-          amount = (hi << 64n) | lo;
-        } else if (sw === 'scvU128') {
-          const parts = vec[2].u128();
-          const hi = BigInt(parts.hi().toString());
-          const lo = BigInt(parts.lo().toString());
-          amount = (hi << 64n) | lo;
-        } else {
-          // fallback
-          amount = BigInt(String(scValToNative(vec[2])));
-        }
-      } catch (e) { console.warn('amount parse error', e); amount = 0n; }
-    }
-
-    // [3] EscrowState enum
-    if (vec[3]) {
-      console.log('state scVal switch:', vec[3].switch().name, vec[3].toXDR('base64'));
-      state = parseEscrowState(vec[3]) as EscrowState;
-    }
+    if (vec[2]) amount = parseI128(vec[2]);
+    if (vec[3]) state = parseEscrowState(vec[3]);
   }
 
   let proofUri: string | undefined;
   try {
     const proofVal = await simulateContract(contractId, 'get_proof_uri', [], signerAddress);
     if (proofVal && proofVal.switch().name !== 'scvVoid') {
-      if (proofVal.switch().name === 'scvString') {
-        proofUri = proofVal.str().toString();
-      } else if (proofVal.switch().name === 'scvVec') {
+      if (proofVal.switch().name === 'scvString') proofUri = proofVal.str().toString();
+      else if (proofVal.switch().name === 'scvVec') {
         const v = proofVal.vec();
-        if (v && v[0] && v[0].switch().name === 'scvString') proofUri = v[0].str().toString();
+        if (v?.[0]?.switch().name === 'scvString') proofUri = v[0].str().toString();
       }
     }
   } catch { /* no proof yet */ }
@@ -250,52 +230,28 @@ export async function getEscrowDetails(
   return { contractId, client, freelancer, amount, state, proofUri };
 }
 
-export async function deposit(
-  contractId: string,
-  signerAddress: string
-): Promise<void> {
+export async function deposit(contractId: string, signerAddress: string): Promise<void> {
   await invokeContract(contractId, 'deposit', [], signerAddress);
 }
 
-export async function submitWork(
-  contractId: string,
-  proofUri: string,
-  signerAddress: string
-): Promise<void> {
-  const args = [nativeToScVal(proofUri, { type: 'string' })];
-  await invokeContract(contractId, 'submit_work', args, signerAddress);
+export async function submitWork(contractId: string, proofUri: string, signerAddress: string): Promise<void> {
+  await invokeContract(contractId, 'submit_work', [nativeToScVal(proofUri, { type: 'string' })], signerAddress);
 }
 
-export async function approveWork(
-  contractId: string,
-  signerAddress: string
-): Promise<void> {
+export async function approveWork(contractId: string, signerAddress: string): Promise<void> {
   await invokeContract(contractId, 'approve_work', [], signerAddress);
 }
 
-export async function raiseDispute(
-  contractId: string,
-  signerAddress: string
-): Promise<void> {
-  const args = [nativeToScVal(signerAddress, { type: 'address' })];
-  await invokeContract(contractId, 'raise_dispute', args, signerAddress);
+export async function raiseDispute(contractId: string, signerAddress: string): Promise<void> {
+  await invokeContract(contractId, 'raise_dispute', [nativeToScVal(signerAddress, { type: 'address' })], signerAddress);
 }
 
-export async function resolveDispute(
-  escrowContractId: string,
-  freelancerWins: boolean,
-  signerAddress: string
-): Promise<void> {
+export async function resolveDispute(escrowContractId: string, freelancerWins: boolean, signerAddress: string): Promise<void> {
   const args = [
     nativeToScVal(escrowContractId, { type: 'address' }),
     nativeToScVal(freelancerWins, { type: 'bool' }),
   ];
-  await invokeContract(
-    DISPUTE_CONTRACT_ID,
-    'resolve_dispute',
-    args,
-    signerAddress
-  );
+  await invokeContract(DISPUTE_CONTRACT_ID, 'resolve_dispute', args, signerAddress);
 }
 
 export function formatXlm(stroops: bigint): string {
