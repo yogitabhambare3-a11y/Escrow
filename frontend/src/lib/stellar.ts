@@ -198,22 +198,46 @@ export async function getEscrowDetails(
 
   if (retval && retval.switch().name === 'scvVec') {
     const vec = retval.vec() ?? [];
+    console.log('get_details fields:', vec.map(v => v.switch().name));
+
+    // [0] client address
     if (vec[0]) client = parseAddress(vec[0]);
+
+    // [1] freelancer address
     if (vec[1]) freelancer = parseAddress(vec[1]);
+
+    // [2] i128 amount — parse directly without scValToNative
     if (vec[2]) {
       try {
-        const n = scValToNative(vec[2]);
-        amount = typeof n === 'bigint' ? n : BigInt(n as number);
-      } catch { amount = 0n; }
+        const sw = vec[2].switch().name;
+        if (sw === 'scvI128') {
+          const parts = vec[2].i128();
+          const hi = BigInt(parts.hi().toString());
+          const lo = BigInt(parts.lo().toString());
+          amount = (hi << 64n) | lo;
+        } else if (sw === 'scvU128') {
+          const parts = vec[2].u128();
+          const hi = BigInt(parts.hi().toString());
+          const lo = BigInt(parts.lo().toString());
+          amount = (hi << 64n) | lo;
+        } else {
+          // fallback
+          amount = BigInt(String(scValToNative(vec[2])));
+        }
+      } catch (e) { console.warn('amount parse error', e); amount = 0n; }
     }
-    if (vec[3]) state = parseEscrowState(vec[3]) as EscrowState;
+
+    // [3] EscrowState enum
+    if (vec[3]) {
+      console.log('state scVal switch:', vec[3].switch().name, vec[3].toXDR('base64'));
+      state = parseEscrowState(vec[3]) as EscrowState;
+    }
   }
 
   let proofUri: string | undefined;
   try {
     const proofVal = await simulateContract(contractId, 'get_proof_uri', [], signerAddress);
     if (proofVal && proofVal.switch().name !== 'scvVoid') {
-      // Option<String> — may be scvVec([scvString]) or scvString
       if (proofVal.switch().name === 'scvString') {
         proofUri = proofVal.str().toString();
       } else if (proofVal.switch().name === 'scvVec') {
