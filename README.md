@@ -11,6 +11,8 @@ A production-ready decentralized escrow platform built with **Soroban smart cont
 
 **Demo Video:** [Watch 1-minute walkthrough](https://www.loom.com/share/YOUR_VIDEO_ID) — shows full flow: connect wallet → create escrow → deposit → submit work → approve & release funds
 
+https://github.com/yogitabhambare3-a11y/Escrow/raw/main/screenshot/demo.mp4
+
 ---
 
 ## ScreenshotsRevisions Needed
