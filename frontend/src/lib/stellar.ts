@@ -6,6 +6,7 @@ import {
   xdr,
   scValToNative,
   nativeToScVal,
+  Address,
 } from '@stellar/stellar-sdk';
 import { signTransaction as freighterSign } from '@stellar/freighter-api';
 import {
@@ -71,7 +72,7 @@ async function simulateContract(
   method: string,
   args: xdr.ScVal[],
   signerAddress: string
-): Promise<unknown> {
+): Promise<xdr.ScVal | null> {
   const account = await server.getAccount(signerAddress);
   const contract = new Contract(contractId);
 
@@ -90,13 +91,38 @@ async function simulateContract(
 
   const successSim = sim as SorobanRpc.Api.SimulateTransactionSuccessResponse;
   if (!successSim.result) return null;
+  return successSim.result.retval;
+}
 
+// Parse a Soroban Address scVal to string
+function parseAddress(val: xdr.ScVal): string {
   try {
-    return scValToNative(successSim.result.retval);
-  } catch (e) {
-    // Raw XDR parse fallback — return the scVal directly for manual parsing
-    console.warn('scValToNative failed, returning raw scVal', e);
-    return successSim.result.retval;
+    return Address.fromScVal(val).toString();
+  } catch {
+    try { return scValToNative(val) as string; } catch { return ''; }
+  }
+}
+
+// Parse custom EscrowState enum — contracttype enums are scvVec with symbol
+function parseEscrowState(val: xdr.ScVal): string {
+  try {
+    // Custom contracttype enum is encoded as ScvVec([ScvSymbol("VariantName")])
+    // or as ScvMap, or directly as ScvSymbol
+    if (val.switch().name === 'scvVec') {
+      const vec = val.vec();
+      if (vec && vec.length > 0) {
+        const first = vec[0];
+        if (first.switch().name === 'scvSymbol') return first.sym().toString();
+        if (first.switch().name === 'scvString') return first.str().toString();
+      }
+    }
+    if (val.switch().name === 'scvSymbol') return val.sym().toString();
+    if (val.switch().name === 'scvString') return val.str().toString();
+    // Enum variant index fallback
+    if (val.switch().name === 'scvLedgerKeyContractInstance') return 'Created';
+    try { return String(scValToNative(val)); } catch { return 'Created'; }
+  } catch {
+    return 'Created';
   }
 }
 
@@ -139,21 +165,12 @@ export async function createEscrow(
 
 export async function getEscrows(signerAddress: string): Promise<string[]> {
   try {
-    const result = await simulateContract(
-      FACTORY_CONTRACT_ID,
-      'get_escrows',
-      [],
-      signerAddress
-    );
-    if (!result) return [];
-    if (Array.isArray(result)) return result as string[];
-    // Handle raw scVal vec
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = result as any;
-    if (raw?._value && Array.isArray(raw._value)) {
-      return raw._value.map((v: xdr.ScVal) => {
-        try { return scValToNative(v) as string; } catch { return null; }
-      }).filter(Boolean);
+    const retval = await simulateContract(FACTORY_CONTRACT_ID, 'get_escrows', [], signerAddress);
+    if (!retval) return [];
+    // Returns a Vec<Address> — scvVec of scvAddress
+    if (retval.switch().name === 'scvVec') {
+      const vec = retval.vec() ?? [];
+      return vec.map((v) => parseAddress(v)).filter(Boolean);
     }
     return [];
   } catch (e) {
@@ -168,30 +185,36 @@ export async function getEscrowDetails(
   contractId: string,
   signerAddress: string
 ): Promise<EscrowDetails> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw = (await simulateContract(contractId, 'get_details', [], signerAddress)) as any;
+  // get_details returns (Address, Address, i128, EscrowState)
+  const retval = await simulateContract(contractId, 'get_details', [], signerAddress);
 
   let client = '', freelancer = '', amount = 0n, state: EscrowState = 'Created';
 
-  if (Array.isArray(raw)) {
-    client = raw[0] ?? '';
-    freelancer = raw[1] ?? '';
-    amount = typeof raw[2] === 'bigint' ? raw[2] : BigInt(raw[2] ?? 0);
-    state = (raw[3] ? Object.keys(raw[3])[0] : 'Created') as EscrowState;
-  } else if (raw && typeof raw === 'object') {
-    // Could be a map with named keys
-    client = raw.client ?? raw[0] ?? '';
-    freelancer = raw.freelancer ?? raw[1] ?? '';
-    amount = typeof raw.amount === 'bigint' ? raw.amount : BigInt(raw.amount ?? raw[2] ?? 0);
-    const stateObj = raw.state ?? raw[3];
-    state = (stateObj ? (typeof stateObj === 'string' ? stateObj : Object.keys(stateObj)[0]) : 'Created') as EscrowState;
+  if (retval && retval.switch().name === 'scvVec') {
+    const vec = retval.vec() ?? [];
+    if (vec[0]) client = parseAddress(vec[0]);
+    if (vec[1]) freelancer = parseAddress(vec[1]);
+    if (vec[2]) {
+      try {
+        const n = scValToNative(vec[2]);
+        amount = typeof n === 'bigint' ? n : BigInt(n as number);
+      } catch { amount = 0n; }
+    }
+    if (vec[3]) state = parseEscrowState(vec[3]) as EscrowState;
   }
 
   let proofUri: string | undefined;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const proof = (await simulateContract(contractId, 'get_proof_uri', [], signerAddress)) as any;
-    proofUri = typeof proof === 'string' ? proof : undefined;
+    const proofVal = await simulateContract(contractId, 'get_proof_uri', [], signerAddress);
+    if (proofVal && proofVal.switch().name !== 'scvVoid') {
+      // Option<String> — may be scvVec([scvString]) or scvString
+      if (proofVal.switch().name === 'scvString') {
+        proofUri = proofVal.str().toString();
+      } else if (proofVal.switch().name === 'scvVec') {
+        const v = proofVal.vec();
+        if (v && v[0] && v[0].switch().name === 'scvString') proofUri = v[0].str().toString();
+      }
+    }
   } catch { /* no proof yet */ }
 
   return { contractId, client, freelancer, amount, state, proofUri };
