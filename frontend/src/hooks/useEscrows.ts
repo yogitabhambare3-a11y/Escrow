@@ -14,9 +14,12 @@ export function useEscrows(signerAddress: string | null) {
     try {
       const ids = await getEscrows(signerAddress);
       const details = await Promise.all(
-        ids.map((id) => getEscrowDetails(id, signerAddress))
+        ids.map((id) => getEscrowDetails(id, signerAddress).catch((e) => {
+          console.error('getEscrowDetails error for', id, e);
+          return null;
+        }))
       );
-      setEscrows(details);
+      setEscrows(details.filter(Boolean) as EscrowDetails[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load escrows');
     } finally {

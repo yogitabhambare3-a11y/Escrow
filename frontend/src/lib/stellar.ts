@@ -167,11 +167,17 @@ export async function getEscrows(signerAddress: string): Promise<string[]> {
   try {
     const retval = await simulateContract(FACTORY_CONTRACT_ID, 'get_escrows', [], signerAddress);
     if (!retval) return [];
+    console.log('getEscrows raw retval switch:', retval.switch().name, retval.toXDR('base64'));
     // Returns a Vec<Address> — scvVec of scvAddress
     if (retval.switch().name === 'scvVec') {
       const vec = retval.vec() ?? [];
       return vec.map((v) => parseAddress(v)).filter(Boolean);
     }
+    // Try native conversion as fallback
+    try {
+      const native = scValToNative(retval);
+      if (Array.isArray(native)) return native as string[];
+    } catch { /* ignore */ }
     return [];
   } catch (e) {
     console.error('getEscrows error:', e);
