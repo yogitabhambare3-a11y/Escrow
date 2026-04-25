@@ -90,7 +90,14 @@ async function simulateContract(
 
   const successSim = sim as SorobanRpc.Api.SimulateTransactionSuccessResponse;
   if (!successSim.result) return null;
-  return scValToNative(successSim.result.retval);
+
+  try {
+    return scValToNative(successSim.result.retval);
+  } catch (e) {
+    // Raw XDR parse fallback — return the scVal directly for manual parsing
+    console.warn('scValToNative failed, returning raw scVal', e);
+    return successSim.result.retval;
+  }
 }
 
 // ─── Sign helper (handles Freighter v1 string and v2 object response) ─────────
@@ -131,13 +138,28 @@ export async function createEscrow(
 }
 
 export async function getEscrows(signerAddress: string): Promise<string[]> {
-  const result = await simulateContract(
-    FACTORY_CONTRACT_ID,
-    'get_escrows',
-    [],
-    signerAddress
-  );
-  return (result as string[]) || [];
+  try {
+    const result = await simulateContract(
+      FACTORY_CONTRACT_ID,
+      'get_escrows',
+      [],
+      signerAddress
+    );
+    if (!result) return [];
+    if (Array.isArray(result)) return result as string[];
+    // Handle raw scVal vec
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = result as any;
+    if (raw?._value && Array.isArray(raw._value)) {
+      return raw._value.map((v: xdr.ScVal) => {
+        try { return scValToNative(v) as string; } catch { return null; }
+      }).filter(Boolean);
+    }
+    return [];
+  } catch (e) {
+    console.error('getEscrows error:', e);
+    return [];
+  }
 }
 
 // ─── Escrow ───────────────────────────────────────────────────────────────────
@@ -146,30 +168,33 @@ export async function getEscrowDetails(
   contractId: string,
   signerAddress: string
 ): Promise<EscrowDetails> {
-  const details = (await simulateContract(
-    contractId,
-    'get_details',
-    [],
-    signerAddress
-  )) as [string, string, bigint, Record<string, unknown>];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = (await simulateContract(contractId, 'get_details', [], signerAddress)) as any;
 
-  const proofUri = (await simulateContract(
-    contractId,
-    'get_proof_uri',
-    [],
-    signerAddress
-  )) as string | null;
+  let client = '', freelancer = '', amount = 0n, state: EscrowState = 'Created';
 
-  const stateKey = Object.keys(details[3])[0] as EscrowState;
+  if (Array.isArray(raw)) {
+    client = raw[0] ?? '';
+    freelancer = raw[1] ?? '';
+    amount = typeof raw[2] === 'bigint' ? raw[2] : BigInt(raw[2] ?? 0);
+    state = (raw[3] ? Object.keys(raw[3])[0] : 'Created') as EscrowState;
+  } else if (raw && typeof raw === 'object') {
+    // Could be a map with named keys
+    client = raw.client ?? raw[0] ?? '';
+    freelancer = raw.freelancer ?? raw[1] ?? '';
+    amount = typeof raw.amount === 'bigint' ? raw.amount : BigInt(raw.amount ?? raw[2] ?? 0);
+    const stateObj = raw.state ?? raw[3];
+    state = (stateObj ? (typeof stateObj === 'string' ? stateObj : Object.keys(stateObj)[0]) : 'Created') as EscrowState;
+  }
 
-  return {
-    contractId,
-    client: details[0],
-    freelancer: details[1],
-    amount: details[2],
-    state: stateKey,
-    proofUri: proofUri ?? undefined,
-  };
+  let proofUri: string | undefined;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proof = (await simulateContract(contractId, 'get_proof_uri', [], signerAddress)) as any;
+    proofUri = typeof proof === 'string' ? proof : undefined;
+  } catch { /* no proof yet */ }
+
+  return { contractId, client, freelancer, amount, state, proofUri };
 }
 
 export async function deposit(
